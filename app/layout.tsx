@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { Newsreader, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { getCurrentUser } from "@/lib/actions/auth.actions";
 
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import "./globals.css";
-import {Toaster} from "@/components/ui/sonner";
+export const dynamic = 'force-dynamic';
 
 const newsreader = Newsreader({
     variable: "--font-newsreader",
@@ -37,28 +38,30 @@ export const metadata: Metadata = {
     ],
     shortcut: "/icon copy.svg",
     apple: "/icon copy.svg",
-  },
+    },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const initialUser = await getCurrentUser();
+
   return (
-    <AuthProvider>
-        <html lang="en">
-          <body
-            className={`${newsreader.variable} ${plusJakartaSans.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen flex flex-col bg-(--bg-primary)`}
-          >
-            <Navbar />
-            <main className="flex-1 pt-20 sm:pt-22">
-              {children}
-            </main>
-            <Footer />
-            <Toaster />
-          </body>
-        </html>
-    </AuthProvider>
+    <html lang="en">
+      <body
+        className={`${newsreader.variable} ${plusJakartaSans.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen flex flex-col bg-(--bg-primary)`}
+      >
+        <AuthProvider initialUser={initialUser as any}>
+          <Navbar />
+          <main className="flex-1 pt-20 sm:pt-22">
+            {children}
+          </main>
+          <Footer />
+          <Toaster />
+        </AuthProvider>
+      </body>
+    </html>
   );
 }

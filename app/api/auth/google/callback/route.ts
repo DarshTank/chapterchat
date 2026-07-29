@@ -65,7 +65,6 @@ export async function GET(request: Request) {
                 image: googleUser.picture,
                 googleId: googleUser.id,
                 isVerified: true,
-                plan: "free",
             });
         }
 

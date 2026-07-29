@@ -12,7 +12,6 @@ export const startVoiceSession = async (userId: string, bookId: string): Promise
             userId,
             bookId,
             startedAt: new Date(),
-            billingPeriodStart: new Date(),
             durationSeconds: 0,
         });
 

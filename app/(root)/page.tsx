@@ -8,6 +8,8 @@ import { getCurrentUser } from "@/lib/actions/auth.actions";
 import Search from "@/components/Search";
 import { Plus, BookOpen, Sparkles } from "lucide-react";
 
+export const dynamic = 'force-dynamic';
+
 export default async function Page(props: { searchParams?: Promise<{ query?: string }> | { query?: string } }) {
     let query: string | undefined = undefined;
     let user: any = null;

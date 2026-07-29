@@ -1,3 +1,2 @@
-export default function PricingCards() {
-    return null;
-}
+// Deprecated & unused component
+export {};

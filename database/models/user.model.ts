@@ -28,7 +28,6 @@ const UserSchema = new Schema<IUser>({
     verificationOtpExpiresAt: { type: Date },
     resetOtp: { type: String },
     resetOtpExpiresAt: { type: Date },
-    plan: { type: String, default: 'free' },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     isBlocked: { type: Boolean, default: false },
     blockedReason: { type: String },

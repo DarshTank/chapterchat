@@ -21,7 +21,6 @@ export interface IUser extends Document {
     verificationOtpExpiresAt?: Date;
     resetOtp?: string;
     resetOtpExpiresAt?: Date;
-    plan: string;
     role?: 'user' | 'admin';
     isBlocked?: boolean;
     blockedReason?: string;
@@ -73,7 +72,6 @@ export interface IVoiceSession extends Document {
     startedAt: Date;
     endedAt?: Date;
     durationSeconds: number;
-    billingPeriodStart: Date;
     createdAt: Date;
     updatedAt: Date;
 }

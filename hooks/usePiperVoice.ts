@@ -543,7 +543,6 @@ export function usePiperVoice(book: IBook) {
         }
 
         setLimitError(null);
-        setIsBillingError(false);
         setStatus('connecting');
         isStoppingRef.current = false;
 

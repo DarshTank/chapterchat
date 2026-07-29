@@ -10,10 +10,10 @@ export interface AuthUser {
     email: string;
     image?: string;
     isVerified: boolean;
-    plan: string;
     googleId?: string;
     hasPassword?: boolean;
     createdAt?: string;
+    role?: string;
 }
 
 interface AuthContextType {
@@ -28,15 +28,20 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
     user: null,
     userId: null,
-    loading: true,
+    loading: false,
     logout: async () => {},
     refreshUser: async () => {},
     isSignedIn: false,
 });
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-    const [user, setUser] = useState<AuthUser | null>(null);
-    const [loading, setLoading] = useState(true);
+interface AuthProviderProps {
+    children: React.ReactNode;
+    initialUser?: AuthUser | null;
+}
+
+export const AuthProvider = ({ children, initialUser = null }: AuthProviderProps) => {
+    const [user, setUser] = useState<AuthUser | null>(initialUser);
+    const [loading, setLoading] = useState<boolean>(false);
     const router = useRouter();
     const pathname = usePathname();
 
@@ -84,3 +89,4 @@ export const useUser = () => {
     const { user, loading, isSignedIn } = useContext(AuthContext);
     return { user, isLoaded: !loading, isSignedIn };
 };
+

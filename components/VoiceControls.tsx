@@ -28,7 +28,6 @@ const VoiceControls = ({ book }: { book: IBook }) => {
         stop,
         clearError,
         limitError,
-        isBillingError,
         maxDurationSeconds,
     } = usePiperVoice(book);
 

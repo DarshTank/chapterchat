@@ -7,6 +7,8 @@ import { getBookBySlug } from "@/lib/actions/book.actions";
 import ClientVoiceControls from "@/components/ClientVoiceControls";
 import DeleteBookButton from "@/components/DeleteBookButton";
 
+export const dynamic = 'force-dynamic';
+
 export default async function BookDetailsPage({
   params,
 }: {
