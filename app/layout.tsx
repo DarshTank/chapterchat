@@ -6,6 +6,8 @@ import { getCurrentUser } from "@/lib/actions/auth.actions";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import "./globals.css";
+import { Toaster } from "@/components/ui/sonner";
+
 export const dynamic = 'force-dynamic';
 
 const newsreader = Newsreader({
