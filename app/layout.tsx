@@ -7,6 +7,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import InspectBlocker from "@/components/InspectBlocker";
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +53,36 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                function blockEvent(e) {
+                  if (e.type === 'contextmenu') {
+                    e.preventDefault();
+                    return false;
+                  }
+                  if (e.type === 'keydown') {
+                    var k = (e.key || '').toUpperCase();
+                    if (k === 'F12' || e.keyCode === 123 ||
+                       ((e.ctrlKey || e.metaKey) && (e.shiftKey || e.altKey) && ['I','J','C','K','S'].includes(k)) ||
+                       ((e.ctrlKey || e.metaKey) && k === 'U')) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      return false;
+                    }
+                  }
+                }
+                window.addEventListener('contextmenu', blockEvent, true);
+                document.addEventListener('contextmenu', blockEvent, true);
+                window.addEventListener('keydown', blockEvent, true);
+                document.addEventListener('keydown', blockEvent, true);
+              })();
+            `,
+          }}
+        />
+      </head>
       <body
         className={`${newsreader.variable} ${plusJakartaSans.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen flex flex-col bg-(--bg-primary)`}
       >
@@ -62,6 +93,7 @@ export default async function RootLayout({
           </main>
           <Footer />
           <Toaster />
+          <InspectBlocker />
         </AuthProvider>
       </body>
     </html>

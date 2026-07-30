@@ -232,3 +232,55 @@ export async function deleteUserAdmin(targetUserId: string, reason?: string) {
         return { success: false, error: err.message || "Failed to delete user" };
     }
 }
+
+/**
+ * Get public or admin system settings
+ */
+export async function getSystemSettings() {
+    try {
+        await connectToDatabase();
+        const SystemSettings = (await import("@/database/models/system-settings.model")).default;
+        let settings = await SystemSettings.findOne({ key: 'global' }).lean();
+
+        if (!settings) {
+            settings = await SystemSettings.create({ key: 'global', disableInspect: true });
+            settings = serializeData(settings);
+        }
+
+        return { success: true, data: serializeData(settings) };
+    } catch (err: any) {
+        console.error("Error fetching system settings:", err);
+        return { success: false, error: err.message, data: { key: 'global', disableInspect: true } };
+    }
+}
+
+/**
+ * Toggle inspect element & right-click restriction
+ */
+export async function toggleDisableInspectAction(enabled: boolean) {
+    try {
+        await verifyAdminAuth();
+        await connectToDatabase();
+
+        const SystemSettings = (await import("@/database/models/system-settings.model")).default;
+        const settings = await SystemSettings.findOneAndUpdate(
+            { key: 'global' },
+            { disableInspect: enabled },
+            { upsert: true, new: true }
+        ).lean();
+
+        const { revalidatePath } = await import('next/cache');
+        revalidatePath('/');
+        revalidatePath('/admin');
+
+        return {
+            success: true,
+            disableInspect: settings.disableInspect,
+            message: `Inspect element \& right-click protection ${enabled ? 'ENABLED' : 'DISABLED'} across the application.`
+        };
+    } catch (err: any) {
+        console.error("Error toggling inspect settings:", err);
+        return { success: false, error: err.message || "Failed to update settings" };
+    }
+}
+

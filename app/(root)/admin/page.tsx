@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/actions/auth.actions";
-import { getAdminUsersList } from "@/lib/actions/admin.actions";
+import { getAdminUsersList, getSystemSettings } from "@/lib/actions/admin.actions";
 import { redirect } from "next/navigation";
 import AdminUserTable from "@/components/AdminUserTable";
 
@@ -13,6 +13,8 @@ export default async function AdminDashboardPage() {
     }
 
     const res = await getAdminUsersList();
+    const settingsRes = await getSystemSettings();
+    const initialDisableInspect = settingsRes.data?.disableInspect ?? true;
 
     if (!res.success || !res.data) {
         return (
@@ -36,6 +38,7 @@ export default async function AdminDashboardPage() {
             <AdminUserTable
                 initialUsers={res.data.users}
                 initialStats={res.data.stats}
+                initialDisableInspect={initialDisableInspect}
             />
         </div>
     );

@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { Search, ShieldAlert, ShieldCheck, UserX, CheckCircle, Trash2, Ban, Unlock, AlertTriangle, Mail } from "lucide-react";
-import { blockUserAdmin, unblockUserAdmin, deleteUserAdmin } from "@/lib/actions/admin.actions";
+import { Search, ShieldAlert, ShieldCheck, UserX, CheckCircle, Trash2, Ban, Unlock, AlertTriangle, Mail, Lock, EyeOff } from "lucide-react";
+import { blockUserAdmin, unblockUserAdmin, deleteUserAdmin, toggleDisableInspectAction } from "@/lib/actions/admin.actions";
 import { toast } from "sonner";
 
 interface AdminUserTableProps {
@@ -13,13 +13,38 @@ interface AdminUserTableProps {
         blockedUsers: number;
         totalBooks: number;
     };
+    initialDisableInspect?: boolean;
 }
 
-export default function AdminUserTable({ initialUsers, initialStats }: AdminUserTableProps) {
+export default function AdminUserTable({ initialUsers, initialStats, initialDisableInspect = true }: AdminUserTableProps) {
     const [users, setUsers] = useState<any[]>(initialUsers);
     const [stats, setStats] = useState(initialStats);
     const [searchQuery, setSearchQuery] = useState("");
     const [loadingId, setLoadingId] = useState<string | null>(null);
+    const [disableInspect, setDisableInspect] = useState<boolean>(initialDisableInspect);
+    const [togglingInspect, setTogglingInspect] = useState<boolean>(false);
+
+    const handleToggleInspect = async () => {
+        const nextState = !disableInspect;
+        setTogglingInspect(true);
+        const toastId = toast.loading(`${nextState ? 'Enabling' : 'Disabling'} DevTools & Right-Click protection...`);
+        try {
+            const res = await toggleDisableInspectAction(nextState);
+            if (res.success) {
+                setDisableInspect(nextState);
+                toast.success(res.message, { id: toastId });
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('system-settings-updated', { detail: { disableInspect: nextState } }));
+                }
+            } else {
+                toast.error(res.error || "Failed to update setting", { id: toastId });
+            }
+        } catch (err: any) {
+            toast.error(err.message || "Failed to toggle setting", { id: toastId });
+        } finally {
+            setTogglingInspect(false);
+        }
+    };
 
     // Modal state for blocking user
     const [blockModalUser, setBlockModalUser] = useState<any | null>(null);
@@ -131,6 +156,38 @@ export default function AdminUserTable({ initialUsers, initialStats }: AdminUser
 
     return (
         <div className="space-y-8">
+            {/* SECURITY & DEVTOOLS CONTROL CARD */}
+            <div className="bg-white border border-[#e7ded0] rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                    <div className={`p-3 rounded-xl ${disableInspect ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                        <EyeOff size={24} />
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-serif font-bold text-base sm:text-lg text-[#212a3b]">DevTools \& Right-Click Protection</h3>
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${disableInspect ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
+                                {disableInspect ? 'PROTECTION ENABLED' : 'PROTECTION DISABLED'}
+                            </span>
+                        </div>
+                        <p className="text-xs text-stone-600 mt-1 max-w-2xl">
+                            Blocks right-click context menu and inspect shortcuts (<code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800">F12</code>, <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800">Ctrl+Shift+I</code>, <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800">Ctrl+U</code>) across the application.
+                        </p>
+                    </div>
+                </div>
+                <button
+                    onClick={handleToggleInspect}
+                    disabled={togglingInspect}
+                    className={`px-4 py-2.5 rounded-xl font-semibold text-xs transition-all flex items-center gap-2 shadow-xs shrink-0 ${
+                        disableInspect
+                            ? 'bg-stone-800 hover:bg-stone-900 text-white'
+                            : 'bg-[#663820] hover:bg-[#522c19] text-white'
+                    } disabled:opacity-50 cursor-pointer`}
+                >
+                    {disableInspect ? <Unlock size={16} /> : <Lock size={16} />}
+                    {disableInspect ? 'Disable Inspect Protection' : 'Enable Inspect Protection'}
+                </button>
+            </div>
+
             {/* STATS SUMMARY ROW */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-white border border-[#e7ded0] rounded-2xl p-5 shadow-xs space-y-1">
