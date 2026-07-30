@@ -1,6 +1,6 @@
 'use client';
 
-import { Mic, MicOff, Loader2, Volume2, Sparkles, Clock, FileText, ExternalLink, X, MessageSquare, Pause, Play, Square } from "lucide-react";
+import { Mic, MicOff, Loader2, Volume2, Sparkles, Clock, FileText, ExternalLink, X, MessageSquare, Pause, Play, Square, RotateCcw } from "lucide-react";
 import usePiperVoice from "@/hooks/usePiperVoice";
 import { IBook } from "@/types";
 import Image from "next/image";
@@ -26,6 +26,7 @@ const VoiceControls = ({ book }: { book: IBook }) => {
         duration,
         start,
         stop,
+        resetSession,
         clearError,
         limitError,
         maxDurationSeconds,
@@ -73,6 +74,21 @@ const VoiceControls = ({ book }: { book: IBook }) => {
         }
     };
 
+    const handleStartNewSession = async () => {
+        stop();
+        if (messages.length > 0 && messages.length !== autoSummarizedCount) {
+            setAutoSummarizedCount(messages.length);
+            toast.info("Auto-summarizing discussion with Groq AI...");
+            const res = await generateAndSaveSummaryAction(book._id, messages);
+            if (res.success && res.data) {
+                toast.success("Discussion summary saved to your history!");
+                setSummaryTrigger((prev) => prev + 1);
+            }
+        }
+        resetSession();
+        toast.success("Started a new voice conversation!");
+    };
+
     const formatDuration = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
         const secs = seconds % 60;
@@ -82,7 +98,7 @@ const VoiceControls = ({ book }: { book: IBook }) => {
     const getStatusDisplay = () => {
         switch (status) {
             case 'connecting': return { label: 'Connecting to AI...', color: 'bg-amber-500 animate-pulse', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' };
-            case 'starting': return { label: 'Starting Engine...', color: 'bg-blue-500 animate-pulse', badgeClass: 'bg-blue-50 text-blue-700 border-blue-200' };
+            case 'starting': return { label: 'Starting Engine...', color: 'bg-blue-500 animate-pulse', badgeClass: 'bg-blue-50 text-[#663820] border-blue-200' };
             case 'listening': return { label: 'Listening to You', color: 'bg-emerald-500 animate-pulse', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
             case 'thinking': return { label: 'AI Thinking...', color: 'bg-amber-500 animate-pulse', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' };
             case 'speaking': return { label: 'AI Speaking', color: 'bg-emerald-500 animate-pulse', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
@@ -245,8 +261,8 @@ const VoiceControls = ({ book }: { book: IBook }) => {
                                     </span>
                                 </div>
 
-                                {/* SEPARATE PAUSE & STOP SESSION BUTTONS DURING ACTIVE VOICE SESSIONS */}
-                                {isActive && (
+                                {/* CONTROLS IN TOOLBAR (PAUSE, STOP, RESUME, NEW CONVERSATION) */}
+                                {isActive ? (
                                     <div className="flex items-center gap-2">
                                         {isPaused ? (
                                             <button
@@ -277,6 +293,29 @@ const VoiceControls = ({ book }: { book: IBook }) => {
                                             <span>Stop Session</span>
                                         </button>
                                     </div>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={start}
+                                            disabled={isLoading}
+                                            className="px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-[#663820] hover:bg-[#522d19] text-white transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                                            title={messages.length > 0 ? "Resume voice session" : "Start voice session"}
+                                        >
+                                            <Mic className="size-3.5" />
+                                            <span>{messages.length > 0 ? "Resume Session" : "Start Session"}</span>
+                                        </button>
+
+                                        {messages.length > 0 && (
+                                            <button
+                                                onClick={handleStartNewSession}
+                                                className="px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-white border border-[#e7ded0] hover:bg-stone-100 text-stone-800 transition-all shadow-xs cursor-pointer"
+                                                title="Start a new voice conversation"
+                                            >
+                                                <RotateCcw className="size-3.5 text-[#663820]" />
+                                                <span>New Conversation</span>
+                                            </button>
+                                        )}
+                                    </div>
                                 )}
                             </div>
 
@@ -285,6 +324,7 @@ const VoiceControls = ({ book }: { book: IBook }) => {
                                 currentMessage={currentMessage}
                                 currentUserMessage={currentUserMessage}
                                 onStartVoice={isActive ? handleEndSession : start}
+                                onStartNewConversation={handleStartNewSession}
                                 isActive={isActive}
                                 isLoading={isLoading}
                             />

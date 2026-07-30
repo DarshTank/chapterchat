@@ -40,6 +40,12 @@ const Navbar = () => {
         setMobileMenuOpen(false);
     }, [pathName]);
 
+    const [imageError, setImageError] = useState(false);
+
+    useEffect(() => {
+        setImageError(false);
+    }, [user?.image]);
+
     return (
         <header className="w-full fixed top-0 left-0 z-50 bg-[#faf8f5]/95 backdrop-blur-md border-b border-[#e7ded0] shadow-xs">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -79,22 +85,25 @@ const Navbar = () => {
                                     onClick={() => setDropdownOpen(!dropdownOpen)}
                                     className="flex items-center gap-2.5 p-1 rounded-full hover:bg-stone-200/50 transition-colors cursor-pointer"
                                 >
-                                    {user.image ? (
-                                        <Image
-                                            src={user.image}
-                                            alt={user.name}
-                                            width={34}
-                                            height={34}
-                                            className="rounded-full object-cover border border-[#663820]/30"
-                                            unoptimized
-                                        />
+                                    {user.image && !imageError ? (
+                                        <div className="relative w-8.5 h-8.5 rounded-full overflow-hidden shrink-0 border border-[#663820]/30 bg-stone-100">
+                                            <Image
+                                                src={user.image}
+                                                alt={user.name || 'User'}
+                                                fill
+                                                sizes="34px"
+                                                className="object-cover"
+                                                onError={() => setImageError(true)}
+                                                unoptimized
+                                            />
+                                        </div>
                                     ) : (
-                                        <div className="w-8.5 h-8.5 rounded-full bg-[#663820] text-white font-bold flex items-center justify-center text-sm shadow-xs border border-[#663820]">
-                                            {user.name.charAt(0).toUpperCase()}
+                                        <div className="w-8.5 h-8.5 rounded-full bg-[#663820] text-white font-bold flex items-center justify-center text-sm shadow-xs border border-[#663820] shrink-0">
+                                            {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
                                         </div>
                                     )}
-                                    <span className="text-sm font-bold text-[#212a3b] hidden lg:inline-block">
-                                        {user.name.split(" ")[0]}
+                                    <span className="text-sm font-bold text-[#212a3b] hidden lg:inline-block truncate max-w-[120px]">
+                                        {user.name ? user.name.split(" ")[0] : ''}
                                     </span>
                                 </button>
 

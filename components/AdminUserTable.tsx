@@ -164,7 +164,7 @@ export default function AdminUserTable({ initialUsers, initialStats, initialDisa
                     </div>
                     <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-serif font-bold text-base sm:text-lg text-[#212a3b]">DevTools \& Right-Click Protection</h3>
+                            <h3 className="font-serif font-bold text-base sm:text-lg text-[#212a3b]">DevTools & Right-Click Protection</h3>
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${disableInspect ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
                                 {disableInspect ? 'PROTECTION ENABLED' : 'PROTECTION DISABLED'}
                             </span>

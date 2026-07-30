@@ -17,6 +17,36 @@ input, textarea, [contenteditable="true"] {
   user-select: text;
 }
 
+/* Global App Theme Scrollbar Styles */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #663820 #f4efe6;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f4efe6;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #663820;
+  border-radius: 9999px;
+  border: 2px solid #f4efe6;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #522d19;
+}
+
+::-webkit-scrollbar-corner {
+  background: #f4efe6;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

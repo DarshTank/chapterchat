@@ -21,25 +21,27 @@ export async function POST(req: Request) {
 
         let contextText = '';
 
-        // Retrieve book content segments from MongoDB if bookId is passed
+        // Retrieve book content segments from MongoDB if bookId is passed (with a 3s timeout safeguard)
         if (bookId) {
             try {
-                await connectToDatabase();
+                const fetchSegments = async () => {
+                    await connectToDatabase();
+                    const searchRes = await searchBookSegments(bookId, message, 4);
+                    let segments = searchRes.data || [];
+                    if (segments.length === 0) {
+                        const initialSegments = await BookSegment.find({ bookId })
+                            .sort({ segmentIndex: 1 })
+                            .limit(4)
+                            .lean();
+                        segments = initialSegments as any[];
+                    }
+                    return segments;
+                };
 
-                // 1. Search for matching segments based on user query
-                const searchRes = await searchBookSegments(bookId, message, 4);
-                let segments = searchRes.data || [];
+                const timeoutPromise = new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 3000));
+                const segments = await Promise.race([fetchSegments(), timeoutPromise]);
 
-                // 2. If no specific search match, fetch the initial overview segments
-                if (segments.length === 0) {
-                    const initialSegments = await BookSegment.find({ bookId })
-                        .sort({ segmentIndex: 1 })
-                        .limit(4)
-                        .lean();
-                    segments = initialSegments as any[];
-                }
-
-                if (segments.length > 0) {
+                if (segments && segments.length > 0) {
                     contextText = segments
                         .map((seg: any) => seg.content)
                         .filter(Boolean)
@@ -89,7 +91,7 @@ IMPORTANT RULES:
             messages: chatMessages,
             model: 'llama-3.3-70b-versatile',
             temperature: 0.7,
-            max_completion_tokens: 250,
+            max_completion_tokens: 150,
         });
 
         const replyText = completion.choices[0]?.message?.content || "That's an interesting point! Tell me more.";

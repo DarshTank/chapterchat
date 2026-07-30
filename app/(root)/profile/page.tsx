@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { updateUserProfile, requestPasswordChangeOtp, verifyResetOtpAndChangePassword } from "@/lib/actions/auth.actions";
-import { User, Mail, ShieldCheck, KeyRound, CheckCircle, Sparkles, Image as ImageIcon, AlertCircle } from "lucide-react";
+import { User, Mail, ShieldCheck, KeyRound, CheckCircle, Sparkles, Image as ImageIcon, AlertCircle, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -21,14 +21,18 @@ export default function ProfilePage() {
     const [otp, setOtp] = useState("");
     const [newPassword, setNewPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
+    const [showNewPassword, setShowNewPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [passwordLoading, setPasswordLoading] = useState(false);
     const [passwordMsg, setPasswordMsg] = useState("");
     const [passwordError, setPasswordError] = useState("");
+    const [profileImageError, setProfileImageError] = useState(false);
 
     useEffect(() => {
         if (user) {
             setName(user.name || "");
             setImageUrl(user.image || "");
+            setProfileImageError(false);
         }
     }, [user]);
 
@@ -138,17 +142,18 @@ export default function ProfilePage() {
                 {/* Header Card */}
                 <div className="bg-white border border-[#e7ded0] rounded-2xl p-6 sm:p-8 shadow-md flex flex-col sm:flex-row items-center gap-6">
                     <div className="relative shrink-0">
-                        {user.image ? (
+                        {user.image && !profileImageError ? (
                             <Image
                                 src={user.image}
                                 alt={user.name}
                                 width={96}
                                 height={96}
+                                onError={() => setProfileImageError(true)}
                                 className="w-24 h-24 rounded-full object-cover border-2 border-[#663820]"
                             />
                         ) : (
                             <div className="w-24 h-24 rounded-full bg-[#663820] text-white border-2 border-[#663820] flex items-center justify-center text-3xl font-bold font-serif">
-                                {user.name.charAt(0).toUpperCase()}
+                                {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
                             </div>
                         )}
                     </div>
@@ -293,28 +298,48 @@ export default function ProfilePage() {
                                     <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
                                         {!user?.hasPassword ? "Create Password" : "New Password"}
                                     </label>
-                                    <input
-                                        type="password"
-                                        required
-                                        value={newPassword}
-                                        onChange={(e) => setNewPassword(e.target.value)}
-                                        placeholder="At least 6 characters"
-                                        className="w-full px-3.5 py-2 bg-white border border-stone-300 rounded-xl text-stone-900 text-sm focus:outline-hidden focus:border-[#663820]"
-                                    />
+                                    <div className="relative">
+                                        <input
+                                            type={showNewPassword ? "text" : "password"}
+                                            required
+                                            value={newPassword}
+                                            onChange={(e) => setNewPassword(e.target.value)}
+                                            placeholder="At least 6 characters"
+                                            className="w-full pl-3.5 pr-10 py-2 bg-white border border-stone-300 rounded-xl text-stone-900 text-sm focus:outline-hidden focus:border-[#663820]"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowNewPassword(!showNewPassword)}
+                                            className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-700 cursor-pointer"
+                                            title={showNewPassword ? "Hide password" : "Show password"}
+                                        >
+                                            {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div>
                                     <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
                                         Confirm Password
                                     </label>
-                                    <input
-                                        type="password"
-                                        required
-                                        value={confirmPassword}
-                                        onChange={(e) => setConfirmPassword(e.target.value)}
-                                        placeholder="Confirm password"
-                                        className="w-full px-3.5 py-2 bg-white border border-stone-300 rounded-xl text-stone-900 text-sm focus:outline-hidden focus:border-[#663820]"
-                                    />
+                                    <div className="relative">
+                                        <input
+                                            type={showConfirmPassword ? "text" : "password"}
+                                            required
+                                            value={confirmPassword}
+                                            onChange={(e) => setConfirmPassword(e.target.value)}
+                                            placeholder="Confirm password"
+                                            className="w-full pl-3.5 pr-10 py-2 bg-white border border-stone-300 rounded-xl text-stone-900 text-sm focus:outline-hidden focus:border-[#663820]"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                            className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-700 cursor-pointer"
+                                            title={showConfirmPassword ? "Hide password" : "Show password"}
+                                        >
+                                            {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="flex gap-2 pt-1">

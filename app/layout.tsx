@@ -2,12 +2,13 @@ import type { Metadata } from "next";
 import { Newsreader, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { getCurrentUser } from "@/lib/actions/auth.actions";
+import { getSystemSettings } from "@/lib/actions/admin.actions";
 
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
-import InspectBlocker from "@/components/InspectBlocker";
+import InspectProtectionManager from "@/components/InspectProtectionManager";
 
 export const dynamic = 'force-dynamic';
 
@@ -29,18 +30,18 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 const jetbrainsMono = JetBrains_Mono({
     variable: '--font-jetbrains-mono',
     subsets: ['latin'],
+    weight: ['400', '500'],
     display: 'swap'
 });
 
 export const metadata: Metadata = {
-  title: "ChapterChat",
-  description: "Transform your books into interactive AI conversations. Upload PDFs, and chat with your books using voice.",
-  icons: {
-    icon: [
-      { url: "/icon copy.svg", type: "image/svg+xml" },
-    ],
-    shortcut: "/icon copy.svg",
-    apple: "/icon copy.svg",
+    title: "ChapterChat — AI-Powered Book Voice Companion",
+    description: "Transform reading into interactive voice conversations. Upload your book PDF, converse in real time with AI book companions, and track key insights.",
+    keywords: ["book companion", "voice chat AI", "PDF audio companion", "Groq AI", "literary chat"],
+    icons: {
+        icon: [{ url: "/icon copy.svg", type: "image/svg+xml" }],
+        shortcut: "/icon copy.svg",
+        apple: "/icon copy.svg",
     },
 };
 
@@ -50,39 +51,11 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const initialUser = await getCurrentUser();
+  const settingsRes = await getSystemSettings();
+  const initialDisableInspect = settingsRes.data?.disableInspect ?? true;
 
   return (
     <html lang="en">
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                function blockEvent(e) {
-                  if (e.type === 'contextmenu') {
-                    e.preventDefault();
-                    return false;
-                  }
-                  if (e.type === 'keydown') {
-                    var k = (e.key || '').toUpperCase();
-                    if (k === 'F12' || e.keyCode === 123 ||
-                       ((e.ctrlKey || e.metaKey) && (e.shiftKey || e.altKey) && ['I','J','C','K','S'].includes(k)) ||
-                       ((e.ctrlKey || e.metaKey) && k === 'U')) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      return false;
-                    }
-                  }
-                }
-                window.addEventListener('contextmenu', blockEvent, true);
-                document.addEventListener('contextmenu', blockEvent, true);
-                window.addEventListener('keydown', blockEvent, true);
-                document.addEventListener('keydown', blockEvent, true);
-              })();
-            `,
-          }}
-        />
-      </head>
       <body
         className={`${newsreader.variable} ${plusJakartaSans.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen flex flex-col bg-(--bg-primary)`}
       >
@@ -93,7 +66,7 @@ export default async function RootLayout({
           </main>
           <Footer />
           <Toaster />
-          <InspectBlocker />
+          <InspectProtectionManager initialDisableInspect={initialDisableInspect} />
         </AuthProvider>
       </body>
     </html>

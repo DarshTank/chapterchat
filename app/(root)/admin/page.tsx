@@ -7,7 +7,8 @@ export default async function AdminDashboardPage() {
     const user = await getCurrentUser();
 
     // Enforce admin security check
-    const isAdmin = user && (user.role === 'admin' || user.email.toLowerCase() === 'darshtank05@gmail.com');
+    const userEmail = user?.email?.toLowerCase() || '';
+    const isAdmin = user && (user.role === 'admin' || userEmail.includes('darshtank'));
     if (!isAdmin) {
         redirect("/");
     }

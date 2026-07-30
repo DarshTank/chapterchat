@@ -25,24 +25,31 @@ function splitIntoSentences(text: string): string[] {
         .filter(s => s.length > 0);
 }
 
-// Call the /api/ai/tts route and return an AudioBuffer blob URL, or null if rate limited / error
-async function synthesizeSentence(text: string, persona: string): Promise<string | null> {
+// Call the /api/ai/tts route and return an AudioBuffer blob URL, or null if rate limited / error / timeout
+async function synthesizeSentence(text: string, persona: string, timeoutMs: number = 3500): Promise<string | null> {
     try {
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
         const res = await fetch('/api/ai/tts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, persona }),
+            signal: controller?.signal,
         });
 
+        if (timeoutId) clearTimeout(timeoutId);
+
         if (!res.ok) {
-            console.warn(`[TTS API Status ${res.status}] Falling back to Web Speech Synthesis.`);
             return null;
         }
 
         const blob = await res.blob();
         return URL.createObjectURL(blob);
-    } catch (err) {
-        console.warn(`[TTS Error] Falling back to Web Speech Synthesis:`, err);
+    } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+            console.warn(`[TTS Fallback] Groq TTS synthesis error:`, err);
+        }
         return null;
     }
 }
@@ -73,6 +80,50 @@ export function usePiperVoice(book: IBook) {
     const messagesRef = useLatestRef(messages);
 
     const persona = book.persona || 'rachel';
+
+    // Pre-warm browser voices on initial mount
+    useEffect(() => {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            try {
+                window.speechSynthesis.getVoices();
+                window.speechSynthesis.onvoiceschanged = () => {
+                    window.speechSynthesis.getVoices();
+                };
+            } catch (_) {}
+        }
+    }, []);
+
+    // Synchronously prime AudioContext and Web Speech API on user gesture click
+    const primeAudio = useCallback(() => {
+        if (typeof window === 'undefined') return;
+
+        // 1. Silent audio playback to unlock HTML5 audio autoplay restrictions
+        try {
+            const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+            silentAudio.volume = 0.01;
+            const p = silentAudio.play();
+            if (p !== undefined) {
+                p.then(() => {
+                    silentAudio.pause();
+                    silentAudio.removeAttribute('src');
+                }).catch(() => {});
+            }
+        } catch (_) {}
+
+        // 2. Prime Web Speech Synthesis engine
+        if ('speechSynthesis' in window) {
+            try {
+                window.speechSynthesis.getVoices();
+                window.speechSynthesis.resume();
+                if (!window.speechSynthesis.speaking) {
+                    const dummyUtterance = new SpeechSynthesisUtterance('');
+                    dummyUtterance.volume = 0;
+                    window.speechSynthesis.speak(dummyUtterance);
+                    window.speechSynthesis.resume();
+                }
+            } catch (_) {}
+        }
+    }, []);
 
     // Revoke all cached blob URLs to free memory
     const revokeBlobUrls = useCallback(() => {
@@ -143,7 +194,7 @@ export function usePiperVoice(book: IBook) {
         revokeBlobUrls();
     }, [stopActiveAudio, stopRecognitionOnly, revokeBlobUrls]);
 
-    // Fallback to Web Speech API when Groq Orpheus API reaches rate limit
+    // Fallback to Web Speech API when Groq Orpheus API reaches rate limit or times out
     const speakWithWebSpeechFallback = useCallback((textToSpeak: string, onEnded?: () => void) => {
         if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
             if (onEnded) onEnded();
@@ -153,7 +204,7 @@ export function usePiperVoice(book: IBook) {
         const synth = window.speechSynthesis;
         try {
             if (synth.speaking || synth.pending) synth.cancel();
-            if (synth.paused) synth.resume();
+            synth.resume();
         } catch (_) {}
 
         const utterance = new SpeechSynthesisUtterance(textToSpeak);
@@ -162,7 +213,11 @@ export function usePiperVoice(book: IBook) {
         if (voiceEntry?.pitch) utterance.pitch = voiceEntry.pitch;
         if (voiceEntry?.rate) utterance.rate = voiceEntry.rate;
 
-        const voices = synth.getVoices();
+        let voices = synth.getVoices();
+        if (voices.length === 0) {
+            voices = synth.getVoices();
+        }
+
         const isMale = voiceEntry?.description?.toLowerCase().includes('male') && !voiceEntry?.description?.toLowerCase().includes('female');
         let selectedVoice = voices.find(v => v.name.toLowerCase().includes(persona.toLowerCase()));
         if (!selectedVoice && voiceEntry?.match) {
@@ -195,13 +250,30 @@ export function usePiperVoice(book: IBook) {
             }
         };
 
-        utterance.onend = () => { if (onEnded) onEnded(); };
-        utterance.onerror = () => { if (onEnded) onEnded(); };
+        // Keep-alive timer for Chrome SpeechSynthesis bug (Chrome pauses speech synthesis after a few seconds)
+        const keepAliveInterval = setInterval(() => {
+            if (!synth.speaking) {
+                clearInterval(keepAliveInterval);
+            } else {
+                synth.resume();
+            }
+        }, 250);
+
+        utterance.onend = () => {
+            clearInterval(keepAliveInterval);
+            if (onEnded) onEnded();
+        };
+
+        utterance.onerror = () => {
+            clearInterval(keepAliveInterval);
+            if (onEnded) onEnded();
+        };
 
         try {
             synth.speak(utterance);
-            if (synth.paused) synth.resume();
+            synth.resume();
         } catch (err) {
+            clearInterval(keepAliveInterval);
             if (onEnded) onEnded();
         }
     }, [persona]);
@@ -254,7 +326,10 @@ export function usePiperVoice(book: IBook) {
 
         const fetchSentence = (i: number): Promise<string | null> => {
             if (!fetchCache.has(i)) {
-                fetchCache.set(i, synthesizeSentence(sentences[i], persona));
+                // Sentence 0: 2500ms max to start initial audio quickly
+                // Sentence N+1: 6000ms max while previous sentence is playing in background
+                const timeout = i === 0 ? 2500 : 6000;
+                fetchCache.set(i, synthesizeSentence(sentences[i], persona, timeout));
             }
             return fetchCache.get(i)!;
         };
@@ -279,9 +354,27 @@ export function usePiperVoice(book: IBook) {
                 const audioUrl = await fetchSentence(sentenceIndex);
 
                 if (!audioUrl) {
-                    console.warn('[TTS Rate Limit] Groq Orpheus limit reached. Falling back to browser speech synthesis.');
                     const remainingText = sentences.slice(sentenceIndex).join(' ');
-                    speakWithWebSpeechFallback(remainingText, finish);
+                    if (!remainingText.trim()) {
+                        finish();
+                        return;
+                    }
+
+                    const triggerFallback = () => {
+                        if (!isStoppingRef.current) {
+                            speakWithWebSpeechFallback(remainingText, finish);
+                        }
+                    };
+
+                    // If active audio is currently playing, wait for it to finish before starting fallback
+                    if (activeAudioRef.current && !activeAudioRef.current.ended && !activeAudioRef.current.paused) {
+                        activeAudioRef.current.onended = () => {
+                            activeAudioRef.current = null;
+                            triggerFallback();
+                        };
+                    } else {
+                        triggerFallback();
+                    }
                     return;
                 }
 
@@ -380,17 +473,31 @@ export function usePiperVoice(book: IBook) {
         await playNextSentence();
     }, [persona, stopRecognitionOnly, revokeBlobUrls]);
 
+    const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const lastSpeechTextRef = useRef<string>('');
+    const isProcessingRef = useRef(false);
+
     // Send user message to AI and speak response
     const processUserSpeech = useCallback(async (userText: string) => {
-        if (!userText.trim() || isStoppingRef.current) return;
+        const text = userText.trim();
+        if (!text || isStoppingRef.current || isProcessingRef.current) return;
 
+        isProcessingRef.current = true;
+
+        if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+        }
+
+        stopRecognitionOnly();
         setStatus('thinking');
         setCurrentUserMessage('');
+        lastSpeechTextRef.current = '';
 
         const currentHistory = messagesRef.current;
         const updatedMessages: Messages[] = [
             ...currentHistory,
-            { role: 'user', content: userText },
+            { role: 'user', content: text },
         ];
         setMessages(updatedMessages);
 
@@ -400,17 +507,23 @@ export function usePiperVoice(book: IBook) {
         }));
 
         try {
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timeoutId = controller ? setTimeout(() => controller.abort(), 10000) : null;
+
             const res = await fetch('/api/ai/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    message: userText,
+                    message: text,
                     history: recentHistory,
                     bookTitle: book.title,
                     bookAuthor: book.author,
                     bookId: book._id,
                 }),
+                signal: controller?.signal,
             });
+
+            if (timeoutId) clearTimeout(timeoutId);
 
             const data = await res.json();
             const reply = data.response || "That's an interesting point! Tell me more.";
@@ -418,8 +531,6 @@ export function usePiperVoice(book: IBook) {
             if (!isStoppingRef.current) {
                 await speakText(reply, () => {
                     if (!isStoppingRef.current) {
-                        // Brief delay after TTS ends before restarting mic
-                        // prevents audio tail from being picked up as user input
                         setTimeout(() => {
                             if (!isStoppingRef.current) startListening();
                         }, 300);
@@ -428,17 +539,24 @@ export function usePiperVoice(book: IBook) {
             }
         } catch (err) {
             console.error('Error fetching AI response:', err);
-            setStatus('idle');
+            setStatus('listening');
             setLimitError('Failed to connect to AI companion. Please try again.');
+            if (!isStoppingRef.current) {
+                setTimeout(() => {
+                    if (!isStoppingRef.current) startListening();
+                }, 1000);
+            }
+        } finally {
+            isProcessingRef.current = false;
         }
-    }, [book.title, book.author, book._id, messagesRef, speakText]);
+    }, [book.title, book.author, book._id, messagesRef, speakText, stopRecognitionOnly]);
 
     // Web Speech API recognition loop (microphone input only)
     const networkRetryRef = useRef(0);
     const MAX_NETWORK_RETRIES = 5;
 
     const startListening = useCallback(() => {
-        if (isStoppingRef.current) return;
+        if (isStoppingRef.current || isProcessingRef.current) return;
 
         const SpeechRecognition =
             (window as any).SpeechRecognition ||
@@ -458,9 +576,12 @@ export function usePiperVoice(book: IBook) {
         recognition.interimResults = true;
         recognition.lang = 'en-US';
 
-        recognition.onstart = () => setStatus('listening');
+        recognition.onstart = () => {
+            if (!isProcessingRef.current) setStatus('listening');
+        };
 
         recognition.onresult = (event: any) => {
+            if (isProcessingRef.current) return;
             networkRetryRef.current = 0;
             let interimTranscript = '';
             let finalTranscript = '';
@@ -473,12 +594,32 @@ export function usePiperVoice(book: IBook) {
                 }
             }
 
-            if (interimTranscript) setCurrentUserMessage(interimTranscript);
+            const speechText = (finalTranscript.trim() || interimTranscript.trim());
 
-            if (finalTranscript.trim()) {
-                setCurrentUserMessage('');
-                try { recognition.stop(); } catch (_) {}
-                processUserSpeech(finalTranscript.trim());
+            if (speechText) {
+                setCurrentUserMessage(speechText);
+                lastSpeechTextRef.current = speechText;
+
+                if (silenceTimerRef.current) {
+                    clearTimeout(silenceTimerRef.current);
+                    silenceTimerRef.current = null;
+                }
+
+                if (finalTranscript.trim()) {
+                    setCurrentUserMessage('');
+                    stopRecognitionOnly();
+                    processUserSpeech(finalTranscript.trim());
+                } else {
+                    // Set a 900ms silence timer to auto-finalize user input if browser delays isFinal
+                    silenceTimerRef.current = setTimeout(() => {
+                        const pendingText = lastSpeechTextRef.current.trim();
+                        if (pendingText && !isProcessingRef.current && statusRef.current === 'listening') {
+                            setCurrentUserMessage('');
+                            stopRecognitionOnly();
+                            processUserSpeech(pendingText);
+                        }
+                    }, 900);
+                }
             }
         };
 
@@ -489,7 +630,7 @@ export function usePiperVoice(book: IBook) {
                 return;
             }
             if (event.error === 'aborted' || event.error === 'no-speech') {
-                if (!isStoppingRef.current && statusRef.current === 'listening') {
+                if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
                     try { recognition.start(); } catch (_) {}
                 }
                 return;
@@ -502,10 +643,10 @@ export function usePiperVoice(book: IBook) {
                     setLimitError('Speech recognition lost connection. Please check your internet and try again.');
                     return;
                 }
-                if (!isStoppingRef.current && statusRef.current === 'listening') {
+                if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
                     const delay = Math.min(1000 * networkRetryRef.current, 3000);
                     setTimeout(() => {
-                        if (!isStoppingRef.current && statusRef.current === 'listening') {
+                        if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
                             stopRecognitionOnly();
                             startListening();
                         }
@@ -513,9 +654,9 @@ export function usePiperVoice(book: IBook) {
                 }
                 return;
             }
-            if (!isStoppingRef.current && statusRef.current === 'listening') {
+            if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
                 setTimeout(() => {
-                    if (!isStoppingRef.current && statusRef.current === 'listening') {
+                    if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
                         try { recognition.start(); } catch (_) {}
                     }
                 }, 500);
@@ -523,7 +664,7 @@ export function usePiperVoice(book: IBook) {
         };
 
         recognition.onend = () => {
-            if (!isStoppingRef.current && statusRef.current === 'listening') {
+            if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
                 try { recognition.start(); } catch (_) {}
             }
         };
@@ -541,6 +682,9 @@ export function usePiperVoice(book: IBook) {
             setLimitError('Please sign in to start a voice session.');
             return;
         }
+
+        // Synchronously unlock browser HTML5 audio & speech synthesis on user gesture
+        primeAudio();
 
         setLimitError(null);
         setStatus('connecting');
@@ -597,7 +741,7 @@ export function usePiperVoice(book: IBook) {
             setStatus('idle');
             setLimitError('Failed to start voice session. Please try again.');
         }
-    }, [userId, book._id, maxDurationRef, startListening]);
+    }, [userId, book._id, maxDurationRef, startListening, primeAudio]);
 
     // Stop session
     const stop = useCallback(() => {
@@ -624,6 +768,14 @@ export function usePiperVoice(book: IBook) {
         isPausedRef.current = false;
         setIsPaused(false);
     }, [stopAudioAndRecognition, durationRef]);
+
+    const resetSession = useCallback(() => {
+        stop();
+        setMessages([]);
+        setCurrentMessage('');
+        setCurrentUserMessage('');
+        setDuration(0);
+    }, [stop]);
 
     const clearError = useCallback(() => {
         setLimitError(null);
@@ -653,6 +805,7 @@ export function usePiperVoice(book: IBook) {
         duration,
         start,
         stop,
+        resetSession,
         limitError,
         maxDurationSeconds,
         clearError,

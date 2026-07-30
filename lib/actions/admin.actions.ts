@@ -16,16 +16,16 @@ import { serializeData, escapeRegex } from "@/lib/utils";
 export async function ensureAdminExists() {
     try {
         await connectToDatabase();
-        const adminEmail = 'darshtank05@gmail.com';
-        const existingAdmin = await Admin.findOne({ email: adminEmail });
-
-        if (!existingAdmin) {
-            await Admin.create({
-                email: adminEmail,
-                name: 'Darsh Tank (Superadmin)',
-                role: 'superadmin',
-            });
-            console.log(`Created superadmin entry for ${adminEmail} in Admin database collection.`);
+        const superadmins = ['darshtank05@gmail.com', 'darshtank.work@gmail.com'];
+        for (const email of superadmins) {
+            const existingAdmin = await Admin.findOne({ email });
+            if (!existingAdmin) {
+                await Admin.create({
+                    email,
+                    name: 'Darsh Tank (Superadmin)',
+                    role: 'superadmin',
+                });
+            }
         }
     } catch (err) {
         console.error("Error ensuring admin exists in Admin collection:", err);
@@ -42,8 +42,9 @@ async function verifyAdminAuth() {
     await connectToDatabase();
     await ensureAdminExists();
 
-    const adminEntry = await Admin.findOne({ email: user.email.toLowerCase() });
-    const isAdmin = Boolean(adminEntry) || user.role === 'admin' || user.email.toLowerCase() === 'darshtank05@gmail.com';
+    const userEmail = user.email.toLowerCase();
+    const adminEntry = await Admin.findOne({ email: userEmail });
+    const isAdmin = Boolean(adminEntry) || user.role === 'admin' || userEmail.includes('darshtank');
 
     if (!isAdmin) {
         throw new Error("Forbidden: Admin privileges required");

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { requestPasswordReset, verifyResetOtpAndChangePassword } from "@/lib/actions/auth.actions";
-import { KeyRound, Mail, Lock, CheckCircle, ArrowLeft, AlertCircle } from "lucide-react";
+import { KeyRound, Mail, Lock, CheckCircle, ArrowLeft, AlertCircle, Eye, EyeOff } from "lucide-react";
 
 export default function ForgotPasswordPage() {
     const [step, setStep] = useState<"request" | "reset">("request");
@@ -11,6 +11,8 @@ export default function ForgotPasswordPage() {
     const [otp, setOtp] = useState("");
     const [newPassword, setNewPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
+    const [showNewPassword, setShowNewPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [success, setSuccess] = useState(false);
@@ -164,13 +166,21 @@ export default function ForgotPasswordPage() {
                             <div className="relative">
                                 <Lock className="absolute left-3.5 top-3 text-stone-400" size={18} />
                                 <input
-                                    type="password"
+                                    type={showNewPassword ? "text" : "password"}
                                     required
                                     value={newPassword}
                                     onChange={(e) => setNewPassword(e.target.value)}
                                     placeholder="At least 6 characters"
-                                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-300 rounded-xl text-stone-900 placeholder:text-stone-400 focus:outline-hidden focus:border-[#663820] text-sm"
+                                    className="w-full pl-10 pr-11 py-2.5 bg-white border border-stone-300 rounded-xl text-stone-900 placeholder:text-stone-400 focus:outline-hidden focus:border-[#663820] text-sm"
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowNewPassword(!showNewPassword)}
+                                    className="absolute right-3.5 top-3 text-stone-400 hover:text-stone-700 cursor-pointer"
+                                    title={showNewPassword ? "Hide password" : "Show password"}
+                                >
+                                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                </button>
                             </div>
                         </div>
 
@@ -181,13 +191,21 @@ export default function ForgotPasswordPage() {
                             <div className="relative">
                                 <Lock className="absolute left-3.5 top-3 text-stone-400" size={18} />
                                 <input
-                                    type="password"
+                                    type={showConfirmPassword ? "text" : "password"}
                                     required
                                     value={confirmPassword}
                                     onChange={(e) => setConfirmPassword(e.target.value)}
                                     placeholder="Re-enter new password"
-                                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-300 rounded-xl text-stone-900 placeholder:text-stone-400 focus:outline-hidden focus:border-[#663820] text-sm"
+                                    className="w-full pl-10 pr-11 py-2.5 bg-white border border-stone-300 rounded-xl text-stone-900 placeholder:text-stone-400 focus:outline-hidden focus:border-[#663820] text-sm"
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                    className="absolute right-3.5 top-3 text-stone-400 hover:text-stone-700 cursor-pointer"
+                                    title={showConfirmPassword ? "Hide password" : "Show password"}
+                                >
+                                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                </button>
                             </div>
                         </div>
 

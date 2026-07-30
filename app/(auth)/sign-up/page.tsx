@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { registerUser } from "@/lib/actions/auth.actions";
 import TransparentLogo from "@/components/TransparentLogo";
-import { Mail, Lock, User as UserIcon, UserPlus, AlertCircle } from "lucide-react";
+import { Mail, Lock, User as UserIcon, UserPlus, AlertCircle, Eye, EyeOff } from "lucide-react";
 
 export default function SignUpPage() {
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const router = useRouter();
@@ -135,13 +136,21 @@ export default function SignUpPage() {
                         <div className="relative">
                             <Lock className="absolute left-3.5 top-3 text-stone-400" size={18} />
                             <input
-                                type="password"
+                                type={showPassword ? "text" : "password"}
                                 required
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 placeholder="At least 6 characters"
-                                className="w-full pl-10 pr-4 py-2.5 bg-white border border-stone-300 rounded-xl text-stone-900 placeholder:text-stone-400 focus:outline-hidden focus:border-[#663820] text-sm"
+                                className="w-full pl-10 pr-11 py-2.5 bg-white border border-stone-300 rounded-xl text-stone-900 placeholder:text-stone-400 focus:outline-hidden focus:border-[#663820] text-sm"
                             />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3.5 top-3 text-stone-400 hover:text-stone-700 cursor-pointer"
+                                title={showPassword ? "Hide password" : "Show password"}
+                            >
+                                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
                         </div>
                     </div>
 

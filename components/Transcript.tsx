@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { Mic, MicOff, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Loader2, RotateCcw } from 'lucide-react';
 import { Messages } from '@/types';
 
 interface TranscriptProps {
@@ -9,6 +9,7 @@ interface TranscriptProps {
   currentMessage: string;
   currentUserMessage: string;
   onStartVoice?: () => void;
+  onStartNewConversation?: () => void;
   isActive?: boolean;
   isLoading?: boolean;
 }
@@ -18,6 +19,7 @@ const Transcript = ({
   currentMessage,
   currentUserMessage,
   onStartVoice,
+  onStartNewConversation,
   isActive,
   isLoading,
 }: TranscriptProps) => {
@@ -61,7 +63,7 @@ const Transcript = ({
           </div>
 
           <span className="font-bold text-base font-serif text-[#663820] group-hover:text-[#7a4528] transition-colors">
-            {isLoading ? 'Connecting Voice...' : isActive ? 'End Voice Session' : 'Start Voice Session'}
+            {isLoading ? 'Connecting Session...' : isActive ? 'End Session' : 'Start Session'}
           </span>
         </button>
 
@@ -113,6 +115,34 @@ const Transcript = ({
           </div>
         )}
       </div>
+
+      {/* Stopped / Inactive Session Action Footer */}
+      {!isActive && (
+        <div className="mt-3 pt-3 border-t border-[#e7ded0] flex flex-wrap items-center justify-between gap-3 shrink-0 bg-[#faf8f5] p-3 rounded-2xl">
+          <span className="text-xs font-semibold text-stone-600">
+            Session ended • Ready to continue or start fresh
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onStartVoice}
+              disabled={isLoading}
+              className="px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-[#663820] hover:bg-[#522d19] text-white transition-all shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              <Mic className="size-3.5" />
+              <span>Resume Session</span>
+            </button>
+            {onStartNewConversation && (
+              <button
+                onClick={onStartNewConversation}
+                className="px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-white border border-[#e7ded0] hover:bg-stone-100 text-stone-800 transition-all shadow-xs cursor-pointer"
+              >
+                <RotateCcw className="size-3.5 text-[#663820]" />
+                <span>Start New Conversation</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
