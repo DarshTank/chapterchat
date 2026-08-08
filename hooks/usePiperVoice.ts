@@ -5,6 +5,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { IBook, Messages } from '@/types';
 import { startVoiceSession, endVoiceSession } from '@/lib/actions/session.actions';
 import { voiceOptions } from '@/lib/constants';
+import { AudioSession } from '@/lib/audio/audioSession';
+import { releaseStream } from '@/lib/audio/micLevel';
+import {
+    startVoiceRecorder,
+    isRecordingSupported,
+    type RecorderHandle,
+} from '@/lib/audio/voiceRecorder';
+import {
+    checkVoiceCapability,
+    getMicPermissionState,
+    type VoiceCapability,
+} from '@/lib/audio/capabilities';
 
 export function useLatestRef<T>(value: T) {
     const ref = useRef(value);
@@ -67,11 +79,35 @@ export function usePiperVoice(book: IBook) {
     const timerRef = useRef<NodeJS.Timeout | null>(null);
     const startTimeRef = useRef<number | null>(null);
     const sessionIdRef = useRef<string | null>(null);
-    const activeAudioRef = useRef<HTMLAudioElement | null>(null);
     const recognitionRef = useRef<any>(null);
     const isStoppingRef = useRef(false);
-    // Track blob URLs to revoke them after playback
-    const blobUrlsRef = useRef<string[]>([]);
+
+    // One audio element for the whole session. See lib/audio/audioSession.ts
+    // for why per-sentence `new Audio()` breaks on iOS.
+    const audioSessionRef = useRef<AudioSession | null>(null);
+    const micStreamRef = useRef<MediaStream | null>(null);
+
+    // Set when the browser blocks playback (NotAllowedError). The UI shows a
+    // tap-to-enable button; previously this failed silently.
+    const [audioBlocked, setAudioBlocked] = useState(false);
+
+    const recorderRef = useRef<RecorderHandle | null>(null);
+
+    // Live mic level (0..1) driving the meter. Replaces the interim
+    // transcript, which Whisper cannot provide since it returns text only
+    // once a turn has ended.
+    const [micLevel, setMicLevel] = useState(0);
+    const micLevelRef = useRef(0);
+
+    // Browser capability, resolved after mount so SSR and hydration agree.
+    const [capability, setCapability] = useState<VoiceCapability | null>(null);
+
+    const getAudioSession = useCallback((): AudioSession => {
+        if (!audioSessionRef.current) {
+            audioSessionRef.current = new AudioSession();
+        }
+        return audioSessionRef.current;
+    }, []);
 
     const statusRef = useLatestRef(status);
     const maxDurationSeconds = 60 * 60;
@@ -81,8 +117,13 @@ export function usePiperVoice(book: IBook) {
 
     const persona = book.persona || 'rachel';
 
-    // Pre-warm browser voices on initial mount
+    // Preflight: resolve browser capability and pre-warm fallback voices.
+    // Runs after mount so the user learns about an unsupported browser
+    // before clicking Start, rather than mid-session.
     useEffect(() => {
+        const cap = checkVoiceCapability();
+        setCapability(cap);
+
         if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
             try {
                 window.speechSynthesis.getVoices();
@@ -91,61 +132,44 @@ export function usePiperVoice(book: IBook) {
                 };
             } catch (_) {}
         }
+
+        // Surface an already-denied mic up front; otherwise the first Start
+        // click fails with no obvious cause.
+        if (cap.supported) {
+            void getMicPermissionState().then(state => {
+                if (state === 'denied') {
+                    setCapability(prev =>
+                        prev
+                            ? {
+                                  ...prev,
+                                  warning:
+                                      'Microphone access is blocked. Enable it in your browser settings to use voice chat.',
+                              }
+                            : prev
+                    );
+                }
+            });
+        }
     }, []);
 
-    // Synchronously prime AudioContext and Web Speech API on user gesture click
+    /**
+     * Unlock audio playback. MUST be called synchronously from the user
+     * gesture (the Start click) before any await — awaiting first moves the
+     * play() call outside the gesture window and iOS rejects it.
+     */
     const primeAudio = useCallback(() => {
         if (typeof window === 'undefined') return;
+        const session = getAudioSession();
+        const { audioUnlocked } = session.unlock();
+        setAudioBlocked(!audioUnlocked);
+    }, [getAudioSession]);
 
-        // 1. Silent audio playback to unlock HTML5 audio autoplay restrictions
-        try {
-            const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
-            silentAudio.volume = 0.01;
-            const p = silentAudio.play();
-            if (p !== undefined) {
-                p.then(() => {
-                    silentAudio.pause();
-                    silentAudio.removeAttribute('src');
-                }).catch(() => {});
-            }
-        } catch (_) {}
-
-        // 2. Prime Web Speech Synthesis engine
-        if ('speechSynthesis' in window) {
-            try {
-                window.speechSynthesis.getVoices();
-                window.speechSynthesis.resume();
-                if (!window.speechSynthesis.speaking) {
-                    const dummyUtterance = new SpeechSynthesisUtterance('');
-                    dummyUtterance.volume = 0;
-                    window.speechSynthesis.speak(dummyUtterance);
-                    window.speechSynthesis.resume();
-                }
-            } catch (_) {}
-        }
-    }, []);
-
-    // Revoke all cached blob URLs to free memory
     const revokeBlobUrls = useCallback(() => {
-        blobUrlsRef.current.forEach(url => {
-            try { URL.revokeObjectURL(url); } catch (_) {}
-        });
-        blobUrlsRef.current = [];
+        audioSessionRef.current?.revokeBlobUrls();
     }, []);
 
-    // Stop active audio playback
     const stopActiveAudio = useCallback(() => {
-        if (activeAudioRef.current) {
-            const audio = activeAudioRef.current;
-            audio.oncanplaythrough = null;
-            audio.onplay = null;
-            audio.onended = null;
-            audio.onerror = null;
-            audio.pause();
-            audio.removeAttribute('src');
-            audio.load();
-            activeAudioRef.current = null;
-        }
+        audioSessionRef.current?.stopPlayback();
     }, []);
 
     const isPausedRef = useRef(false);
@@ -155,9 +179,7 @@ export function usePiperVoice(book: IBook) {
     const pauseAudio = useCallback(() => {
         isPausedRef.current = true;
         setIsPaused(true);
-        if (activeAudioRef.current && !activeAudioRef.current.paused) {
-            activeAudioRef.current.pause();
-        }
+        audioSessionRef.current?.pause();
         if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
             if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
                 window.speechSynthesis.pause();
@@ -169,9 +191,7 @@ export function usePiperVoice(book: IBook) {
     const resumeAudio = useCallback(() => {
         isPausedRef.current = false;
         setIsPaused(false);
-        if (activeAudioRef.current && activeAudioRef.current.paused) {
-            activeAudioRef.current.play().catch(() => {});
-        }
+        audioSessionRef.current?.resume().catch(() => {});
         if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
             if (window.speechSynthesis.paused) {
                 window.speechSynthesis.resume();
@@ -179,8 +199,15 @@ export function usePiperVoice(book: IBook) {
         }
     }, []);
 
-    // Stop speech recognition
+    // Stop capturing microphone input (without releasing the mic stream).
     const stopRecognitionOnly = useCallback(() => {
+        if (recorderRef.current) {
+            try { recorderRef.current.stop(); } catch (_) {}
+            recorderRef.current = null;
+        }
+        setMicLevel(0);
+        micLevelRef.current = 0;
+        // Legacy SpeechRecognition instance, if one is ever set by a fallback.
         if (recognitionRef.current) {
             try { recognitionRef.current.abort(); } catch (_) {}
             recognitionRef.current = null;
@@ -360,39 +387,19 @@ export function usePiperVoice(book: IBook) {
                         return;
                     }
 
-                    const triggerFallback = () => {
-                        if (!isStoppingRef.current) {
-                            speakWithWebSpeechFallback(remainingText, finish);
-                        }
-                    };
-
-                    // If active audio is currently playing, wait for it to finish before starting fallback
-                    if (activeAudioRef.current && !activeAudioRef.current.ended && !activeAudioRef.current.paused) {
-                        activeAudioRef.current.onended = () => {
-                            activeAudioRef.current = null;
-                            triggerFallback();
-                        };
-                    } else {
-                        triggerFallback();
+                    if (!isStoppingRef.current) {
+                        speakWithWebSpeechFallback(remainingText, finish);
                     }
                     return;
                 }
 
-                blobUrlsRef.current.push(audioUrl);
-
-                console.log(`[TTS] Playing sentence ${sentenceIndex + 1}/${sentences.length}:`, sentences[sentenceIndex]);
+                const session = getAudioSession();
+                session.trackBlobUrl(audioUrl);
 
                 if (isStoppingRef.current) { finish(); return; }
 
-                const audio = new Audio();
-                activeAudioRef.current = audio;
-
-                audio.oncanplaythrough = () => {
-                    console.log(`[TTS] Audio ready to play, duration: ${audio.duration}s`);
-                };
-
-                audio.onplay = () => {
-                    console.log(`[TTS] Audio playback started for sentence ${sentenceIndex + 1}`);
+                // Word-by-word transcript sync, started once we know the duration.
+                const startWordTimer = (durationSec: number) => {
                     clearWordTimer();
 
                     const previousText = sentences.slice(0, sentenceIndex).join(' ');
@@ -408,9 +415,11 @@ export function usePiperVoice(book: IBook) {
                     let wordCount = 1;
                     setCurrentMessage(prefix + words.slice(0, wordCount).join(' '));
 
-                    const totalDurationMs = (audio.duration && !isNaN(audio.duration) && audio.duration > 0)
-                        ? (audio.duration * 1000)
-                        : (words.length * 280);
+                    // durationSec is 0 when metadata is unavailable (common on
+                    // mobile Safari before loadedmetadata) — estimate instead.
+                    const totalDurationMs = durationSec > 0
+                        ? durationSec * 1000
+                        : words.length * 280;
 
                     const intervalMs = Math.max(70, Math.floor(totalDurationMs / words.length));
 
@@ -425,42 +434,38 @@ export function usePiperVoice(book: IBook) {
                     }, intervalMs);
                 };
 
-                audio.onended = () => {
-                    console.log(`[TTS] Audio ended for sentence ${sentenceIndex + 1}`);
-                    clearWordTimer();
-                    const spokenSoFar = sentences.slice(0, sentenceIndex + 1).join(' ');
-                    setCurrentMessage(spokenSoFar);
-                    activeAudioRef.current = null;
-                    sentenceIndex++;
-                    playNextSentence();
-                };
+                try {
+                    await session.play(audioUrl, startWordTimer);
 
-                audio.onerror = (e) => {
                     clearWordTimer();
-                    if (isStoppingRef.current || !audio.src || audio.src === window.location.href) {
+                    setCurrentMessage(sentences.slice(0, sentenceIndex + 1).join(' '));
+                    sentenceIndex++;
+                    await playNextSentence();
+                } catch (playErr: any) {
+                    clearWordTimer();
+
+                    if (playErr?.name === 'NotAllowedError') {
+                        // Autoplay blocked. The old code silently skipped here,
+                        // producing a completely silent session with no
+                        // explanation. Surface it and stop — resuming needs a
+                        // fresh user gesture.
+                        console.warn('[TTS] Playback blocked by autoplay policy');
+                        setAudioBlocked(true);
+                        setLimitError('Tap "Enable Audio" to hear your AI companion.');
+                        finish();
                         return;
                     }
-                    console.error('[TTS] Audio playback error:', audio.error?.code, audio.error?.message, e);
-                    activeAudioRef.current = null;
-                    sentenceIndex++;
-                    playNextSentence();
-                };
 
-                // Set src after attaching event listeners
-                audio.src = audioUrl;
-                audio.load();
-
-                const playPromise = audio.play();
-                if (playPromise !== undefined) {
-                    playPromise
-                        .then(() => console.log('[TTS] play() resolved successfully'))
-                        .catch(err => {
-                            clearWordTimer();
-                            console.error('[TTS] play() rejected:', err.name, err.message);
-                            activeAudioRef.current = null;
-                            sentenceIndex++;
-                            playNextSentence();
-                        });
+                    // Decode/network failure on this clip: fall back to browser
+                    // speech for the rest rather than dropping the turn.
+                    console.warn('[TTS] Clip failed, using browser speech:', playErr?.message);
+                    const remaining = sentences.slice(sentenceIndex).join(' ');
+                    if (remaining.trim() && !isStoppingRef.current) {
+                        speakWithWebSpeechFallback(remaining, finish);
+                    } else {
+                        finish();
+                    }
+                    return;
                 }
             } catch (err) {
                 clearWordTimer();
@@ -471,10 +476,17 @@ export function usePiperVoice(book: IBook) {
         };
 
         await playNextSentence();
-    }, [persona, stopRecognitionOnly, revokeBlobUrls]);
+    }, [persona, stopRecognitionOnly, revokeBlobUrls, getAudioSession, speakWithWebSpeechFallback]);
 
-    const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-    const lastSpeechTextRef = useRef<string>('');
+    /**
+     * Re-unlock audio after an autoplay block. Must be wired to a real click.
+     */
+    const enableAudio = useCallback(() => {
+        const { audioUnlocked } = getAudioSession().unlock();
+        setAudioBlocked(!audioUnlocked);
+        if (audioUnlocked) setLimitError(null);
+    }, [getAudioSession]);
+
     const isProcessingRef = useRef(false);
 
     // Send user message to AI and speak response
@@ -484,15 +496,11 @@ export function usePiperVoice(book: IBook) {
 
         isProcessingRef.current = true;
 
-        if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-            silenceTimerRef.current = null;
-        }
-
+        // Stop capturing while the AI thinks and speaks, so its own voice
+        // is not recorded as the user's next turn.
         stopRecognitionOnly();
         setStatus('thinking');
         setCurrentUserMessage('');
-        lastSpeechTextRef.current = '';
 
         const currentHistory = messagesRef.current;
         const updatedMessages: Messages[] = [
@@ -551,130 +559,113 @@ export function usePiperVoice(book: IBook) {
         }
     }, [book.title, book.author, book._id, messagesRef, speakText, stopRecognitionOnly]);
 
-    // Web Speech API recognition loop (microphone input only)
-    const networkRetryRef = useRef(0);
-    const MAX_NETWORK_RETRIES = 5;
+    /**
+     * Send a recorded turn to our Whisper route and hand the text to the
+     * chat pipeline.
+     */
+    const transcribeTurn = useCallback(async (audio: Blob) => {
+        if (isStoppingRef.current || isProcessingRef.current) return;
 
+        setStatus('thinking');
+        setCurrentUserMessage('');
+
+        try {
+            const form = new FormData();
+            form.append('audio', audio);
+
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
+
+            const res = await fetch('/api/ai/stt', {
+                method: 'POST',
+                body: form,
+                signal: controller?.signal,
+            });
+
+            if (timeoutId) clearTimeout(timeoutId);
+
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                if (res.status === 429 || body?.isRateLimit) {
+                    setLimitError('Speech recognition is busy right now. Please wait a moment and try again.');
+                } else if (body?.isConfigError) {
+                    setLimitError('Speech recognition is not configured on the server.');
+                } else {
+                    setLimitError('Could not understand the audio. Please try again.');
+                }
+                if (!isStoppingRef.current) setStatus('listening');
+                return;
+            }
+
+            const data = await res.json();
+            const text = (data?.text ?? '').trim();
+
+            // Empty transcript: silence or noise. Just keep listening.
+            if (!text) {
+                if (!isStoppingRef.current) setStatus('listening');
+                return;
+            }
+
+            await processUserSpeech(text);
+        } catch (err: any) {
+            if (err?.name !== 'AbortError') {
+                console.warn('[STT] Request failed:', err?.message);
+                setLimitError('Could not reach the speech service. Check your connection.');
+            }
+            if (!isStoppingRef.current) setStatus('listening');
+        }
+    }, [processUserSpeech]);
+
+    const transcribeTurnRef = useLatestRef(transcribeTurn);
+
+    /**
+     * Begin listening. Uses MediaRecorder + server-side Whisper rather than
+     * the browser's SpeechRecognition, which is unavailable or unreliable on
+     * Firefox, Brave, in-app webviews, and iOS Safari.
+     */
     const startListening = useCallback(() => {
         if (isStoppingRef.current || isProcessingRef.current) return;
 
-        const SpeechRecognition =
-            (window as any).SpeechRecognition ||
-            (window as any).webkitSpeechRecognition;
-
-        if (!SpeechRecognition) {
-            setLimitError('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
+        if (!isRecordingSupported()) {
+            setLimitError('Voice input is not supported in this browser. Please update your browser or use text chat.');
             setStatus('idle');
             return;
         }
 
+        const ctx = audioSessionRef.current?.getContext();
+        const stream = micStreamRef.current;
+
+        if (!ctx || !stream) {
+            setLimitError('Microphone is not ready. Please restart the session.');
+            setStatus('idle');
+            return;
+        }
+
+        // A suspended context produces a flat level signal, so VAD would
+        // never trigger. Safari suspends aggressively on backgrounding.
+        if (ctx.state === 'suspended') void ctx.resume();
+
         stopRecognitionOnly();
 
-        const recognition = new SpeechRecognition();
-        recognitionRef.current = recognition;
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
-
-        recognition.onstart = () => {
-            if (!isProcessingRef.current) setStatus('listening');
-        };
-
-        recognition.onresult = (event: any) => {
-            if (isProcessingRef.current) return;
-            networkRetryRef.current = 0;
-            let interimTranscript = '';
-            let finalTranscript = '';
-
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-                if (event.results[i].isFinal) {
-                    finalTranscript += event.results[i][0].transcript;
-                } else {
-                    interimTranscript += event.results[i][0].transcript;
-                }
-            }
-
-            const speechText = (finalTranscript.trim() || interimTranscript.trim());
-
-            if (speechText) {
-                setCurrentUserMessage(speechText);
-                lastSpeechTextRef.current = speechText;
-
-                if (silenceTimerRef.current) {
-                    clearTimeout(silenceTimerRef.current);
-                    silenceTimerRef.current = null;
-                }
-
-                if (finalTranscript.trim()) {
-                    setCurrentUserMessage('');
-                    stopRecognitionOnly();
-                    processUserSpeech(finalTranscript.trim());
-                } else {
-                    // Set a 900ms silence timer to auto-finalize user input if browser delays isFinal
-                    silenceTimerRef.current = setTimeout(() => {
-                        const pendingText = lastSpeechTextRef.current.trim();
-                        if (pendingText && !isProcessingRef.current && statusRef.current === 'listening') {
-                            setCurrentUserMessage('');
-                            stopRecognitionOnly();
-                            processUserSpeech(pendingText);
-                        }
-                    }, 900);
-                }
-            }
-        };
-
-        recognition.onerror = (event: any) => {
-            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        recorderRef.current = startVoiceRecorder(ctx, stream, {
+            silenceMs: 900,
+            onTurnEnd: (audio) => {
+                if (isStoppingRef.current || isProcessingRef.current) return;
+                void transcribeTurnRef.current(audio);
+            },
+            onLevel: (l) => {
+                micLevelRef.current = l;
+                setMicLevel(l);
+            },
+            onError: (err) => {
+                console.warn('[Recorder]', err.message);
+                setLimitError('Microphone recording failed. Please restart the session.');
                 setStatus('idle');
-                setLimitError('Microphone access was denied. Please allow microphone permissions in your browser URL bar.');
-                return;
-            }
-            if (event.error === 'aborted' || event.error === 'no-speech') {
-                if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
-                    try { recognition.start(); } catch (_) {}
-                }
-                return;
-            }
-            if (event.error === 'network') {
-                networkRetryRef.current += 1;
-                if (networkRetryRef.current >= MAX_NETWORK_RETRIES) {
-                    networkRetryRef.current = 0;
-                    setStatus('idle');
-                    setLimitError('Speech recognition lost connection. Please check your internet and try again.');
-                    return;
-                }
-                if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
-                    const delay = Math.min(1000 * networkRetryRef.current, 3000);
-                    setTimeout(() => {
-                        if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
-                            stopRecognitionOnly();
-                            startListening();
-                        }
-                    }, delay);
-                }
-                return;
-            }
-            if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
-                setTimeout(() => {
-                    if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
-                        try { recognition.start(); } catch (_) {}
-                    }
-                }, 500);
-            }
-        };
+            },
+        });
 
-        recognition.onend = () => {
-            if (!isStoppingRef.current && !isProcessingRef.current && statusRef.current === 'listening') {
-                try { recognition.start(); } catch (_) {}
-            }
-        };
-
-        try {
-            recognition.start();
-        } catch (e) {
-            console.error('Error starting recognition:', e);
-        }
-    }, [processUserSpeech, stopRecognitionOnly, statusRef]);
+        setStatus('listening');
+    }, [stopRecognitionOnly, transcribeTurnRef]);
 
     // Start full voice session
     const start = useCallback(async () => {
@@ -690,11 +681,28 @@ export function usePiperVoice(book: IBook) {
         setStatus('connecting');
         isStoppingRef.current = false;
 
-        // Request microphone permission
+        // Capability gate. Covers insecure (HTTP) contexts, missing
+        // mediaDevices, and browsers without MediaRecorder/AudioContext,
+        // each with a specific reason instead of a silent failure.
+        const cap = capability ?? checkVoiceCapability();
+        if (!cap.supported) {
+            setStatus('idle');
+            setLimitError(cap.reason ?? 'Voice chat is not supported in this browser.');
+            return;
+        }
+
+        // Request microphone permission. Keep the stream — Phase 1 (VAD +
+        // level meter) needs it, and holding it lets us stop tracks properly
+        // on teardown instead of leaking the mic for the whole session.
         try {
-            if (navigator.mediaDevices?.getUserMedia) {
-                await navigator.mediaDevices.getUserMedia({ audio: true });
-            }
+            releaseStream(micStreamRef.current);
+            micStreamRef.current = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+            });
         } catch (micErr) {
             console.error('Microphone permission error:', micErr);
             setStatus('idle');
@@ -741,7 +749,7 @@ export function usePiperVoice(book: IBook) {
             setStatus('idle');
             setLimitError('Failed to start voice session. Please try again.');
         }
-    }, [userId, book._id, maxDurationRef, startListening, primeAudio]);
+    }, [userId, book._id, maxDurationRef, startListening, primeAudio, capability]);
 
     // Stop session
     const stop = useCallback(() => {
@@ -751,6 +759,14 @@ export function usePiperVoice(book: IBook) {
         setCurrentUserMessage('');
 
         stopAudioAndRecognition();
+
+        // Release the mic so the browser's recording indicator turns off.
+        releaseStream(micStreamRef.current);
+        micStreamRef.current = null;
+
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            try { window.speechSynthesis.cancel(); } catch (_) {}
+        }
 
         if (timerRef.current) {
             clearInterval(timerRef.current);
@@ -784,6 +800,10 @@ export function usePiperVoice(book: IBook) {
     useEffect(() => {
         return () => {
             if (sessionIdRef.current) stop();
+            releaseStream(micStreamRef.current);
+            micStreamRef.current = null;
+            audioSessionRef.current?.dispose();
+            audioSessionRef.current = null;
         };
     }, [stop]);
 
@@ -809,6 +829,12 @@ export function usePiperVoice(book: IBook) {
         limitError,
         maxDurationSeconds,
         clearError,
+        audioBlocked,
+        enableAudio,
+        micLevel,
+        voiceSupported: capability?.supported ?? true,
+        voiceUnsupportedReason: capability?.reason,
+        voiceWarning: capability?.warning,
     };
 }
 

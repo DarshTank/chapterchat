@@ -12,7 +12,32 @@ interface TranscriptProps {
   onStartNewConversation?: () => void;
   isActive?: boolean;
   isLoading?: boolean;
+  /** Live mic level, 0..1. Drives the listening meter. */
+  micLevel?: number;
+  status?: string;
 }
+
+/**
+ * Live mic meter. Whisper transcribes only after a turn ends, so this is
+ * what proves to the user that the microphone is actually picking them up.
+ */
+const MicMeter = ({ level }: { level: number }) => {
+  const bars = [0.35, 0.6, 0.85, 1, 0.85, 0.6, 0.35];
+  return (
+    <div className="flex items-end justify-center gap-1 h-8" aria-hidden="true">
+      {bars.map((weight, i) => {
+        const height = Math.max(4, Math.min(32, level * weight * 60));
+        return (
+          <span
+            key={i}
+            className="w-1.5 rounded-full bg-emerald-500 transition-[height] duration-75"
+            style={{ height: `${height}px` }}
+          />
+        );
+      })}
+    </div>
+  );
+};
 
 const Transcript = ({
   messages,
@@ -22,6 +47,8 @@ const Transcript = ({
   onStartNewConversation,
   isActive,
   isLoading,
+  micLevel = 0,
+  status,
 }: TranscriptProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -103,6 +130,25 @@ const Transcript = ({
             <div className="transcript-bubble transcript-bubble-user">
               {currentUserMessage}
             </div>
+          </div>
+        )}
+
+        {/* Live mic feedback while listening, and a transcribing indicator
+            after the turn ends. Together these replace the interim text the
+            browser API used to provide. */}
+        {isActive && status === 'listening' && (
+          <div className="flex flex-col items-center gap-1.5 py-3">
+            <MicMeter level={micLevel} />
+            <span className="text-xs font-semibold text-stone-500">
+              {micLevel > 0.04 ? 'Listening…' : 'Speak when ready'}
+            </span>
+          </div>
+        )}
+
+        {isActive && status === 'thinking' && !currentUserMessage && (
+          <div className="flex items-center justify-center gap-2 py-3">
+            <Loader2 className="size-3.5 animate-spin text-[#663820]" />
+            <span className="text-xs font-semibold text-stone-500">Transcribing…</span>
           </div>
         )}
 

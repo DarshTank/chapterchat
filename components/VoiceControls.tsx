@@ -30,6 +30,12 @@ const VoiceControls = ({ book }: { book: IBook }) => {
         clearError,
         limitError,
         maxDurationSeconds,
+        audioBlocked,
+        enableAudio,
+        micLevel,
+        voiceSupported,
+        voiceUnsupportedReason,
+        voiceWarning,
     } = usePiperVoice(book);
 
     const router = useRouter();
@@ -244,6 +250,50 @@ const VoiceControls = ({ book }: { book: IBook }) => {
                         </div>
                     )}
 
+                    {/* Browser can't do voice at all — say so before the user
+                        clicks Start, and point them at text chat. */}
+                    {activeTab === 'voice' && !voiceSupported && (
+                        <div className="px-4 py-3 bg-rose-50 border-b border-rose-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                            <div className="flex items-start gap-2 text-xs font-semibold text-rose-900">
+                                <MicOff size={15} className="shrink-0 mt-0.5" />
+                                <span>{voiceUnsupportedReason ?? 'Voice chat is not supported in this browser.'}</span>
+                            </div>
+                            <button
+                                onClick={() => setActiveTab('text')}
+                                className="px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-rose-700 hover:bg-rose-800 text-white transition-all shadow-xs cursor-pointer"
+                            >
+                                <MessageSquare className="size-3.5" />
+                                <span>Use Text Chat</span>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Mic permission already denied at the OS/browser level. */}
+                    {activeTab === 'voice' && voiceSupported && voiceWarning && (
+                        <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-start gap-2 shrink-0">
+                            <MicOff size={15} className="shrink-0 mt-0.5 text-amber-700" />
+                            <span className="text-xs font-semibold text-amber-900">{voiceWarning}</span>
+                        </div>
+                    )}
+
+                    {/* Autoplay blocked — needs a fresh user gesture to unlock.
+                        Without this the session plays silently with no explanation. */}
+                    {activeTab === 'voice' && audioBlocked && (
+                        <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                            <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+                                <Volume2 size={15} className="shrink-0" />
+                                <span>Your browser blocked audio playback.</span>
+                            </div>
+                            <button
+                                onClick={enableAudio}
+                                className="px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white transition-all shadow-xs cursor-pointer"
+                            >
+                                <Volume2 className="size-3.5" />
+                                <span>Enable Audio</span>
+                            </button>
+                        </div>
+                    )}
+
                     {/* Tab Body: Voice vs Text Chat */}
                     {activeTab === 'voice' ? (
                         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -327,6 +377,8 @@ const VoiceControls = ({ book }: { book: IBook }) => {
                                 onStartNewConversation={handleStartNewSession}
                                 isActive={isActive}
                                 isLoading={isLoading}
+                                micLevel={micLevel}
+                                status={status}
                             />
                         </div>
                     ) : (
