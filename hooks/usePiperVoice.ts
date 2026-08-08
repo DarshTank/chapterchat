@@ -12,6 +12,11 @@ import {
     isRecordingSupported,
     type RecorderHandle,
 } from '@/lib/audio/voiceRecorder';
+import {
+    checkVoiceCapability,
+    getMicPermissionState,
+    type VoiceCapability,
+} from '@/lib/audio/capabilities';
 
 export function useLatestRef<T>(value: T) {
     const ref = useRef(value);
@@ -94,6 +99,9 @@ export function usePiperVoice(book: IBook) {
     const [micLevel, setMicLevel] = useState(0);
     const micLevelRef = useRef(0);
 
+    // Browser capability, resolved after mount so SSR and hydration agree.
+    const [capability, setCapability] = useState<VoiceCapability | null>(null);
+
     const getAudioSession = useCallback((): AudioSession => {
         if (!audioSessionRef.current) {
             audioSessionRef.current = new AudioSession();
@@ -109,8 +117,13 @@ export function usePiperVoice(book: IBook) {
 
     const persona = book.persona || 'rachel';
 
-    // Pre-warm browser voices on initial mount
+    // Preflight: resolve browser capability and pre-warm fallback voices.
+    // Runs after mount so the user learns about an unsupported browser
+    // before clicking Start, rather than mid-session.
     useEffect(() => {
+        const cap = checkVoiceCapability();
+        setCapability(cap);
+
         if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
             try {
                 window.speechSynthesis.getVoices();
@@ -118,6 +131,24 @@ export function usePiperVoice(book: IBook) {
                     window.speechSynthesis.getVoices();
                 };
             } catch (_) {}
+        }
+
+        // Surface an already-denied mic up front; otherwise the first Start
+        // click fails with no obvious cause.
+        if (cap.supported) {
+            void getMicPermissionState().then(state => {
+                if (state === 'denied') {
+                    setCapability(prev =>
+                        prev
+                            ? {
+                                  ...prev,
+                                  warning:
+                                      'Microphone access is blocked. Enable it in your browser settings to use voice chat.',
+                              }
+                            : prev
+                    );
+                }
+            });
         }
     }, []);
 
@@ -650,18 +681,13 @@ export function usePiperVoice(book: IBook) {
         setStatus('connecting');
         isStoppingRef.current = false;
 
-        // Insecure contexts (plain HTTP) have no navigator.mediaDevices at
-        // all. The old optional-chaining skipped this silently and failed
-        // later with a confusing error.
-        if (typeof window !== 'undefined' && !window.isSecureContext) {
+        // Capability gate. Covers insecure (HTTP) contexts, missing
+        // mediaDevices, and browsers without MediaRecorder/AudioContext,
+        // each with a specific reason instead of a silent failure.
+        const cap = capability ?? checkVoiceCapability();
+        if (!cap.supported) {
             setStatus('idle');
-            setLimitError('Voice requires a secure (HTTPS) connection. Please open this site over HTTPS.');
-            return;
-        }
-
-        if (!navigator.mediaDevices?.getUserMedia) {
-            setStatus('idle');
-            setLimitError('This browser cannot access the microphone. Please try Chrome, Edge, Safari, or Firefox.');
+            setLimitError(cap.reason ?? 'Voice chat is not supported in this browser.');
             return;
         }
 
@@ -723,7 +749,7 @@ export function usePiperVoice(book: IBook) {
             setStatus('idle');
             setLimitError('Failed to start voice session. Please try again.');
         }
-    }, [userId, book._id, maxDurationRef, startListening, primeAudio]);
+    }, [userId, book._id, maxDurationRef, startListening, primeAudio, capability]);
 
     // Stop session
     const stop = useCallback(() => {
@@ -806,6 +832,9 @@ export function usePiperVoice(book: IBook) {
         audioBlocked,
         enableAudio,
         micLevel,
+        voiceSupported: capability?.supported ?? true,
+        voiceUnsupportedReason: capability?.reason,
+        voiceWarning: capability?.warning,
     };
 }
 
