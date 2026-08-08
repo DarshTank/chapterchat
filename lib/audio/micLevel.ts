@@ -15,6 +15,8 @@
 export type MicLevelHandle = {
     /** Current RMS level, 0..1. Read from a rAF loop. */
     getLevel: () => number;
+    /** True when the current frame is above the speech threshold. */
+    isSpeaking: () => boolean;
     /** True once level has stayed under the silence threshold long enough. */
     isSilent: (silenceMs: number) => boolean;
     /** Reset the silence timer — call when a new turn starts. */
@@ -40,6 +42,7 @@ export function createMicLevel(
 
     const buf = new Float32Array(analyser.fftSize);
     let lastLoudAt = Date.now();
+    let lastRms = 0;
     let stopped = false;
 
     const getLevel = (): number => {
@@ -48,15 +51,24 @@ export function createMicLevel(
         let sum = 0;
         for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
         const rms = Math.sqrt(sum / buf.length);
+        lastRms = rms;
         if (rms > SILENCE_THRESHOLD) lastLoudAt = Date.now();
         return Math.min(1, rms * 4); // scaled for display
     };
 
     return {
         getLevel,
+        isSpeaking: () => {
+            if (stopped) return false;
+            getLevel(); // refresh lastRms / lastLoudAt
+            return lastRms > SILENCE_THRESHOLD;
+        },
         isSilent: (silenceMs: number) => {
             if (stopped) return true;
             getLevel(); // refresh lastLoudAt
+            // A zero window is meaningless here — elapsed is always >= 0 —
+            // so callers wanting "is there speech right now" must use
+            // isSpeaking() instead.
             return Date.now() - lastLoudAt >= silenceMs;
         },
         resetSilence: () => {

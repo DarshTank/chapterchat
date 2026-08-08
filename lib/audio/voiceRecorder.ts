@@ -142,15 +142,15 @@ export function startVoiceRecorder(
     };
 
     // VAD loop: start on speech, stop after sustained silence.
+    // getLevel() is the single sample point per frame — it refreshes the
+    // silence timer, so the checks below read consistent state.
     const tick = () => {
         if (stopped) return;
 
-        const l = level.getLevel();
-        onLevel?.(l);
+        onLevel?.(level.getLevel());
 
         if (!speaking) {
-            // Any level above the floor starts a turn.
-            if (!level.isSilent(0)) beginTurn();
+            if (level.isSpeaking()) beginTurn();
         } else {
             const tooLong = Date.now() - turnStartedAt >= maxTurnMs;
             if (tooLong || level.isSilent(silenceMs)) endTurn();
