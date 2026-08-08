@@ -32,6 +32,7 @@ const VoiceControls = ({ book }: { book: IBook }) => {
         maxDurationSeconds,
         audioBlocked,
         enableAudio,
+        micLevel,
     } = usePiperVoice(book);
 
     const router = useRouter();
@@ -347,6 +348,8 @@ const VoiceControls = ({ book }: { book: IBook }) => {
                                 onStartNewConversation={handleStartNewSession}
                                 isActive={isActive}
                                 isLoading={isLoading}
+                                micLevel={micLevel}
+                                status={status}
                             />
                         </div>
                     ) : (
