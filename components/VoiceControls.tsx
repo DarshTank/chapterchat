@@ -30,6 +30,8 @@ const VoiceControls = ({ book }: { book: IBook }) => {
         clearError,
         limitError,
         maxDurationSeconds,
+        audioBlocked,
+        enableAudio,
     } = usePiperVoice(book);
 
     const router = useRouter();
@@ -241,6 +243,24 @@ const VoiceControls = ({ book }: { book: IBook }) => {
                                 </p>
                                 <p className="text-xs text-stone-500">Initializing voice synthesis & microphone channel</p>
                             </div>
+                        </div>
+                    )}
+
+                    {/* Autoplay blocked — needs a fresh user gesture to unlock.
+                        Without this the session plays silently with no explanation. */}
+                    {activeTab === 'voice' && audioBlocked && (
+                        <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                            <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+                                <Volume2 size={15} className="shrink-0" />
+                                <span>Your browser blocked audio playback.</span>
+                            </div>
+                            <button
+                                onClick={enableAudio}
+                                className="px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white transition-all shadow-xs cursor-pointer"
+                            >
+                                <Volume2 className="size-3.5" />
+                                <span>Enable Audio</span>
+                            </button>
                         </div>
                     )}
 
