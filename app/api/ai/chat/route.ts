@@ -3,6 +3,7 @@ import Groq from 'groq-sdk';
 import { connectToDatabase } from '@/database/mongoose';
 import BookSegment from '@/database/models/book-segment.model';
 import { searchBookSegments } from '@/lib/actions/book.actions';
+import { GROQ_CHAT_MODEL } from '@/lib/groqModels';
 
 export async function POST(req: Request) {
     try {
@@ -89,9 +90,14 @@ IMPORTANT RULES:
 
         const completion = await groq.chat.completions.create({
             messages: chatMessages,
-            model: 'llama-3.3-70b-versatile',
+            model: GROQ_CHAT_MODEL,
             temperature: 0.7,
             max_completion_tokens: 150,
+            // gpt-oss models spend part of the token budget on hidden
+            // reasoning before visible content. At low effort that's a few
+            // tokens; at default effort it can eat most of a 150-token cap
+            // and return empty content with finish_reason "length".
+            reasoning_effort: 'low',
         });
 
         const replyText = completion.choices[0]?.message?.content || "That's an interesting point! Tell me more.";

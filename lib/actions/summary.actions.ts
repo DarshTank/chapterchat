@@ -5,6 +5,7 @@ import BookSummary from "@/database/models/book-summary.model";
 import { getCurrentUser } from "@/lib/actions/auth.actions";
 import { serializeData } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
+import { GROQ_CHAT_MODEL } from "@/lib/groqModels";
 
 export const getBookVisitAndSummaries = async (bookId: string) => {
     try {
@@ -82,10 +83,13 @@ ${conversationText}`;
 
         const chatCompletion = await groq.chat.completions.create({
             messages: [{ role: "user", content: prompt }],
-            model: "llama-3.3-70b-versatile",
+            model: GROQ_CHAT_MODEL,
             response_format: { type: "json_object" },
             temperature: 0.3,
             max_tokens: 600,
+            // See app/api/ai/chat/route.ts: gpt-oss models spend part of the
+            // token budget on hidden reasoning before visible content.
+            reasoning_effort: 'low',
         });
 
         const rawContent = chatCompletion.choices[0]?.message?.content || "";

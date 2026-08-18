@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
+import { GROQ_TTS_MODEL } from '@/lib/groqModels';
 
 // Voice mapping: persona name → Groq Orpheus voice
 // Available Groq Orpheus voices: hannah, diana, autumn, daniel, austin, troy
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
 
         // Groq Orpheus TTS — returns audio buffer
         const response = await groq.audio.speech.create({
-            model: 'canopylabs/orpheus-v1-english',
+            model: GROQ_TTS_MODEL,
             voice,
             input: text.trim(),
             response_format: 'wav',

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
+import { GROQ_STT_MODEL } from '@/lib/groqModels';
 
 /**
  * Server-side speech-to-text via Groq Whisper.
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
 
         const transcription = await groq.audio.transcriptions.create({
             file,
-            model: 'whisper-large-v3-turbo',
+            model: GROQ_STT_MODEL,
             response_format: 'json',
             // Bias the decoder toward book discussion vocabulary.
             prompt: 'A conversation about a book, its characters, themes, and chapters.',
